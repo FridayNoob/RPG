@@ -1,0 +1,37 @@
+﻿using UnityEngine;
+
+
+
+public class ShadyStunnedState : EnemyState
+{
+    private Enemy_Shady enemy;
+    public ShadyStunnedState(EnemyStateMachine _stateMachine, Enemy _enemyBase, string _animBoolName, Enemy_Shady _enemy) : base(_stateMachine, _enemyBase, _animBoolName)
+    {
+        this.enemy = _enemy;
+    }
+
+    public override void Enter()
+    {
+        base.Enter();
+
+        stateTimer = enemy.stunnedDuration;
+        rb.velocity = new Vector2(enemy.stunnedDirection.x * -enemy.facingDir, enemy.stunnedDirection.y);
+
+        enemy.fx.InvokeRepeating("RedColorBlink", 0, .1f);
+    }
+    public override void Update()
+    {
+        base.Update();
+
+        if (stateTimer < 0)
+            stateMachine.ChangeState(enemy.idleState);
+
+
+    }
+
+    public override void Exit()
+    {
+        base.Exit();
+        enemy.fx.Invoke("CancelColorChange", 0);
+    }
+}
