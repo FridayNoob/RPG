@@ -61,6 +61,15 @@ public class UI_InGame : MonoBehaviour
         CheckCooldownOf(crystalImage, skills.crystal.cooldown);
         CheckCooldownOf(swrodImage, skills.sword.cooldown);
         CheckCooldownOf(blackholeImage, skills.blackhole.cooldown);
+        if(flaskImage == null)
+        {
+            Debug.LogError("Flask image reference is missing in UI_InGame script.");
+        }
+
+        if(Inventory.instance == null)
+        {
+            Debug.LogError("Inventory instance is missing in UI_InGame script.");
+        }
         CheckCooldownOf(flaskImage, Inventory.instance.flaskCooldown);
 
     }

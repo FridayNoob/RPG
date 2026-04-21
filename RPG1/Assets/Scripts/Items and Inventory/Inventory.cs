@@ -1,4 +1,5 @@
 using System;
+using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
 #if UNITY_EDITOR
@@ -19,6 +20,16 @@ public class Inventory : MonoBehaviour, ISaveManager
     //仓库-材料容器
     public List<InventoryItem> stash;
     public Dictionary<ItemData, InventoryItem> stashDictionary;
+    public GameObject stashSlotPrefab;
+    public GameObject stashScrollViewObj;
+    public Vector2 offset = new Vector2(0, 0);
+    private RectTransform itemSlotRect;
+    private float itemSlotWidth;
+    private float itemSlotHeight;
+    private int column;
+    private int row;
+    private int maxShownItems;
+    private int startShowItemIndex = 0;
     //仓库-装备容器
     public List<InventoryItem> equipment;
     public Dictionary<ItemData_Equipment, InventoryItem> equipmentDictionnary;
@@ -31,8 +42,8 @@ public class Inventory : MonoBehaviour, ISaveManager
     [SerializeField] private Transform equipmentParent;
     [SerializeField] private Transform statSlotParent;
     //保存所有插槽
-    private UI_ItemSlot[] inventoryItemSlot;
-    private UI_ItemSlot[] stashItemSlot;
+    private List<UI_ItemSlot> inventoryItemSlot;
+    private List<UI_ItemSlot> stashItemSlot;
     private UI_EquipmentSlot[] equipmentSlot;
     private UI_StatSlot[] statSlot;
 
@@ -42,7 +53,7 @@ public class Inventory : MonoBehaviour, ISaveManager
     private float lastTimeUsedFlask;
     //记录上一次铠甲被动生效的时刻
     private float lastTimeUsedArmor;
-    //Flask使用的冷却时间
+    //Flask使用的冷却时间 
     public float flaskCooldown { get; private set; }
     //铠甲被动生效的冷却时间
     private float armorCooldown;
@@ -66,11 +77,11 @@ public class Inventory : MonoBehaviour, ISaveManager
         //初始化仓库物品：物品列表、物品字典、库存插槽UI列表
         inventory = new List<InventoryItem>();
         inventoryDictionary = new Dictionary<ItemData, InventoryItem>();
-        inventoryItemSlot = inventorySlotParent.GetComponentsInChildren<UI_ItemSlot>();
+        inventoryItemSlot = new List<UI_ItemSlot>(inventorySlotParent.GetComponentsInChildren<UI_ItemSlot>());
         //初始化材料物品：物品列表、物品字典、材料库存插槽UI列表
         stash = new List<InventoryItem>();
         stashDictionary = new Dictionary<ItemData, InventoryItem>();
-        stashItemSlot = stashSlotParent.GetComponentsInChildren<UI_ItemSlot>();
+        stashItemSlot = new List<UI_ItemSlot>(stashSlotParent.GetComponentsInChildren<UI_ItemSlot>());
         //初始化装备栏物品：物品列表、物品字典、装备栏插槽UI列表
         equipment = new List<InventoryItem>();
         equipmentDictionnary = new Dictionary<ItemData_Equipment, InventoryItem>();
@@ -78,6 +89,9 @@ public class Inventory : MonoBehaviour, ISaveManager
         //初始化玩家统计数据容器：UI列表
         statSlot = statSlotParent.GetComponentsInChildren<UI_StatSlot>();
 
+        //添加stash仓库滚动监听事件
+        var scrollRect = stashScrollViewObj.GetComponent<UnityEngine.UI.ScrollRect>();
+        scrollRect.onValueChanged.AddListener(delegate { ScrollViewOnValueChanged(); });
 
 
     }
@@ -242,7 +256,7 @@ public class Inventory : MonoBehaviour, ISaveManager
     public void AddItem(ItemData _item)
     {
         //根据物品类型决定将装备放到装备仓库或者材料库
-        if (_item.itemType == ItemType.Equipment && CanAddItem(_item))
+        if (_item.itemType == ItemType.Equipment)
         {
             //Debug.Log("合成装备：" + _item.itemName);
             AddToInventory(_item);
@@ -280,6 +294,7 @@ public class Inventory : MonoBehaviour, ISaveManager
             InventoryItem newItem = new InventoryItem(_item);
             stash.Add(newItem);
             stashDictionary.Add(_item, newItem);
+
         }
     }
 
@@ -332,32 +347,156 @@ public class Inventory : MonoBehaviour, ISaveManager
 
     private void UpdateSlotUI()
     {
-        //更新所有仓库的UI显示
-        //先清理仓库和材料库所有旧UI，然后用最新的数据更新仓库、材料库和装备栏UI
-        for (int i = 0; i < inventoryItemSlot.Length; i++)
+        //Debug.Log("Stash Count = " + stash.Count);
+        //根据stash数组来更新库存插槽及UI显示
+        //计算插槽位置参数
+        float offsetX = offset.x;
+        float offsetY = offset.y;
+        //统计材料仓库物体总数
+        int stashCount = stash.Count;
+        //Debug.Log("Total stash items: " + stashCount);
+        //根据ScrollView窗口大小计算行列数
+        var stashScrollViewRect = stashScrollViewObj.GetComponent<RectTransform>();
+        float scrollViewWidth = stashScrollViewRect.rect.width;
+        float scrollViewHeight = stashScrollViewRect.rect.height;
+
+        itemSlotRect = stashSlotPrefab.GetComponent<RectTransform>();
+        itemSlotWidth = itemSlotRect.rect.width;
+        itemSlotHeight = itemSlotRect.rect.height;
+
+        column = Mathf.FloorToInt(scrollViewWidth / (itemSlotWidth + offsetY));
+        row = Mathf.FloorToInt(scrollViewHeight / (itemSlotHeight + offsetX)); 
+
+        int totalCol = Mathf.CeilToInt((float)stashCount / row);
+        //计算当前ScrollView窗口能显示的最大物品数量
+        maxShownItems = column * row + 1;
+        //Debug.Log("Item slot width: " + itemSlotWidth + ", height: " + itemSlotHeight);
+        //Debug.Log("ScrollView width: " + scrollViewWidth + ", height: " + scrollViewHeight);
+        //Debug.Log("Columns: " + columns + ", Rows: " + rows + ", Max shown items: " + maxShownItems);
+        //设置content大小
+        var contentRect = stashSlotParent.GetComponent<RectTransform>();
+        float contentWidth = totalCol * (itemSlotWidth + offsetX);
+        float contentHeight = contentRect.sizeDelta.y;
+        Vector2 contentSize = new Vector2(contentWidth, contentHeight);
+        contentRect.sizeDelta = contentSize;
+
+        //创建前先清理掉之前的插槽UI
+        if (stashSlotParent != null)
         {
-            inventoryItemSlot[i].CleanUpSlot();
+            // 遍历父物体的所有子物体，全部销毁
+            foreach (Transform child in stashSlotParent)
+            {
+                Destroy(child.gameObject);
+            }
         }
 
-        for (int i = 0; i < stashItemSlot.Length; i++)
-        {
-            stashItemSlot[i].CleanUpSlot();
-        }
+        stashItemSlot.Clear();
+
+
+        CreateStashItemSlotNow(maxShownItems);
+        //开启协程创建对应数量的材料仓库插槽UI
+        //StartCoroutine(CreateStashItemSlot(maxShownItems));
+
+ 
+
+
+        //更新所有仓库的UI显示
 
         for (int i = 0; i < inventory.Count; i++)
         {
+           
             inventoryItemSlot[i].UpdateSlot(inventory[i]);
         }
-        for (int i = 0; i < stash.Count; i++)
-        {
-            stashItemSlot[i].UpdateSlot(stash[i]);
-        }
+
         for (int i = 0; i < equipment.Count; i++)
         {
             equipmentSlot[i].UpdateSlot(equipment[i]);
         }
 
         UpdateStatsUI();
+    }
+
+    private static void UpdatePosition(float offsetX, float offsetY, float itemSlotWidth, float itemSlotHeight, int columns, int index, UI_ItemSlot stashSlot)
+    {
+        if(columns == 0)
+        {
+            //Debug.LogError("Columns cannot be zero. Check the scroll view and item slot dimensions.");
+        }
+        int currentColumn = index;
+        float posX = currentColumn * (itemSlotWidth + offsetX);
+        stashSlot.GetComponent<RectTransform>().anchoredPosition = new Vector2(posX, 0);
+    }
+
+
+    void ScrollViewOnValueChanged()
+    {
+        //当ScrollView滚动时，更新材料仓库UI显示
+        var contentRect = stashSlotParent.GetComponent<RectTransform>();
+        UpdateScroviewShowInfo(contentRect);
+    }
+
+    //当ScrollView滚动时，更新材料仓库UI显示
+    public void UpdateScroviewShowInfo(RectTransform contentRect)
+    {
+        float x = contentRect.anchoredPosition.x;
+        x = Mathf.Min(x, 0);
+        int newStartShowItemIndex = Mathf.FloorToInt(-x / (itemSlotWidth + offset.x));
+        if (newStartShowItemIndex != startShowItemIndex)
+        {
+            Debug.Log("ScrollView position changed. Updating shown items. New start index: " + newStartShowItemIndex);
+            startShowItemIndex = Mathf.Min(newStartShowItemIndex, stash.Count- maxShownItems);
+            UpdateSlotUI();
+        }
+    }
+
+    IEnumerator CreateStashItemSlot(int maxShownItems)
+    {
+        //Debug.Log("Creating stash item slots...");
+        Debug.Log("stash items count : " + stash.Count);
+        //根据当前ScrollView窗口能显示的最大物品数量来创建对应数量的材料仓库插槽UI
+        int showItems = Mathf.Min(stash.Count, maxShownItems);
+        
+
+
+        for (int i = 0; i < showItems; i++)
+        {
+            UI_ItemSlot slot = Instantiate(stashSlotPrefab, stashSlotParent).GetComponent<UI_ItemSlot>();
+            stashItemSlot.Add(slot);
+            slot.UpdateSlot(stash[startShowItemIndex + i]);
+            //根据索引设置插槽位置，按照行列来设置
+            UpdatePosition(offset.x, offset.y, itemSlotWidth, itemSlotHeight, column, i, slot);
+            yield return null;
+        }
+        
+    }
+
+
+
+    void CreateStashItemSlotNow(int maxShownItems)
+    {
+        //Debug.Log("Creating stash item slots...");
+        //Debug.Log("stash items count : " + stash.Count);
+        //根据当前ScrollView窗口能显示的最大物品数量来创建对应数量的材料仓库插槽UI
+        int showItems = Mathf.Min(stash.Count, maxShownItems);
+
+
+
+        for (int i = 0; i < showItems; i++)
+        {
+            UI_ItemSlot slot = Instantiate(stashSlotPrefab, stashSlotParent).GetComponent<UI_ItemSlot>();
+            stashItemSlot.Add(slot);
+            
+            if(startShowItemIndex + i >= stash.Count)
+            {
+                Debug.LogWarning("Attempting to access stash item at index " + (startShowItemIndex + i) + " but stash count is only " + stash.Count);
+                Debug.Log("I = " + i + "             startShowItemIndex = " + startShowItemIndex);
+            }
+            slot.UpdateSlot(stash[startShowItemIndex + i]);
+            //根据索引设置插槽位置，按照行列来设置
+            UpdatePosition(offset.x, offset.y, itemSlotWidth, itemSlotHeight, column, startShowItemIndex + i, slot);
+            
+        }
+
     }
 
     public void UpdateStatsUI()
@@ -373,7 +512,7 @@ public class Inventory : MonoBehaviour, ISaveManager
         if (_item.itemType != ItemType.Equipment)
             return true;
         //判断装备仓库是否已满，满了的话就无法入库
-        if (inventory.Count >= inventoryItemSlot.Length && !inventoryDictionary.Keys.Contains(_item))
+        if (inventory.Count >= inventoryItemSlot.Count && !inventoryDictionary.Keys.Contains(_item))
         {
             Debug.Log("No more space!");
             return false;
@@ -434,7 +573,7 @@ public class Inventory : MonoBehaviour, ISaveManager
         }
     }
     //当Build Game时，下面这段代码不会被考虑
-    #if UNITY_EDITOR
+#if UNITY_EDITOR
 
     [ContextMenu("Fill up item data base")]
     private void FillUpItemDataBase() => itemDataBase = new List<ItemData>(GetItemDataBase());
@@ -455,6 +594,6 @@ public class Inventory : MonoBehaviour, ISaveManager
         return tempItemDataBase;
     }
 
-    #endif
+#endif
 
 }

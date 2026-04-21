@@ -34,7 +34,7 @@ public class UI_ItemSlot : MonoBehaviour,IPointerDownHandler,IPointerEnterHandle
             }
             else
             {
-                itemText.text = "";
+                itemText.text = "1";
             }
         }
     }

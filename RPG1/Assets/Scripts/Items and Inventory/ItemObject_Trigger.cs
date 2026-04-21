@@ -5,7 +5,7 @@ using UnityEngine;
 public class ItemObject_Trigger : MonoBehaviour
 {
     private ItemObject myItemObject => GetComponentInParent<ItemObject>();
-    private bool isPlayerInRange = false;
+    public bool isPlayerInRange = false;
 
     private void Update()
     {
@@ -23,7 +23,8 @@ public class ItemObject_Trigger : MonoBehaviour
 
     private void OnTriggerEnter2D(Collider2D collision)
     {
-        isPlayerInRange = true;
+        if(collision.CompareTag("Player"))
+            isPlayerInRange = true;
 
     }
 
@@ -31,6 +32,7 @@ public class ItemObject_Trigger : MonoBehaviour
 
     private void OnTriggerExit2D(Collider2D collision)
     {
-        isPlayerInRange = false;
+        if (collision.CompareTag("Player"))
+            isPlayerInRange = true;
     }
 }
