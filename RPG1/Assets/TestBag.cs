@@ -24,7 +24,7 @@ public class TestBag : MonoBehaviour
     public void Generate()
     {
         //StartCoroutine(GenerateItems());
-        GenerateItemsNow();
+        GenerateBatch();
     }
 
     void GenerateItemsNow()
@@ -35,9 +35,28 @@ public class TestBag : MonoBehaviour
             ItemData newItemData = Instantiate(testItemDataPrefab);
 
             newItemData.icon = allSprites[i % allSprites.Length];
+            StopAllCoroutines();
             Inventory.instance.AddItem(newItemData);
             
         }
+    }
+
+
+    public void GenerateBatch()
+    {
+        List<ItemData> list = new List<ItemData>(objCount);
+        Sprite[] allSprites = Resources.LoadAll<Sprite>("Graphics/Icons/BG 6");
+        for (int i = 0; i < objCount; i++)
+        {
+            ItemData newItemData = Instantiate(testItemDataPrefab);
+            newItemData.icon = allSprites[i % allSprites.Length];
+            list.Add(newItemData);
+        }
+        // 批量添加（一次性刷新 UI）
+        if (Inventory.instance != null)
+            Inventory.instance.AddItemsBatch(list);
+        else
+            Debug.LogError("Inventory.instance is null. Ensure Inventory exists and initialized before generating items.");
     }
 
     IEnumerator GenerateItems()

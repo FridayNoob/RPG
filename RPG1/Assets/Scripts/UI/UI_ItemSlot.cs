@@ -37,7 +37,7 @@ public class UI_ItemSlot : MonoBehaviour,IPointerDownHandler,IPointerEnterHandle
                 itemText.text = "1";
             }
         }
-    }
+    } 
 
     public void CleanUpSlot()
     {
