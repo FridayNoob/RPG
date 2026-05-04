@@ -6,9 +6,25 @@ using System.Linq;
 using UnityEditor;
 #endif
 using UnityEngine;
+using UnityEngine.UI;
+
 
 public class Inventory : MonoBehaviour, ISaveManager
 {
+    //用一个结构体来存储仓库的属性，方便管理和传递参数
+    struct InventoryProp
+    {
+        public RectTransform itemSlotRect;
+        public float itemSlotWidth;//库存插槽宽度
+        public float itemSlotHeight;//库存插槽高度
+        public int column;//单页显示列数
+        public int row;//单页显示行数
+        public int totalColumn;
+        public int totalRow;//总列数
+        public int maxShownItems;//单页显示库存数
+        public int startShowItemIndex;//单页显示的第一个库存物品索引
+    }
+    private InventoryProp stashProp, inventoryProp;
     //管理仓库
     //仓库实例
     public static Inventory instance;
@@ -18,13 +34,8 @@ public class Inventory : MonoBehaviour, ISaveManager
     public List<InventoryItem> inventory;
     public Dictionary<ItemData, InventoryItem> inventoryDictionary;
     //用于三个仓库库存计算的共享变量
-    private RectTransform itemSlotRect;
-    private float itemSlotWidth;
-    private float itemSlotHeight;
-    private int column;
-    private int row;
-    private int maxShownItems;
-    private int startShowItemIndex = 0;
+    
+
     [Header("库存插槽偏移Padding")]
     public Vector2 offset = new Vector2(0, 0);
     //仓库-材料容器
@@ -97,8 +108,12 @@ public class Inventory : MonoBehaviour, ISaveManager
         statSlot = statSlotParent.GetComponentsInChildren<UI_StatSlot>();
 
         //添加stash仓库滚动监听事件
-        var scrollRect = stashScrollViewObj.GetComponent<UnityEngine.UI.ScrollRect>();
-        scrollRect.onValueChanged.AddListener(delegate { ScrollViewOnValueChanged(); });
+        var scrollRect = stashScrollViewObj.GetComponent<ScrollRect>();
+        scrollRect.onValueChanged.AddListener(delegate { StashScrollViewOnValueChanged(); });
+
+        //添加inventory仓库滚动监听事件
+        var inventoryScrollRect = inventoryScrollViewObj.GetComponent<ScrollRect>();
+        inventoryScrollRect.onValueChanged.AddListener(delegate { InventoryScrollViewOnValueChanged(); });
 
 
     }
@@ -376,21 +391,32 @@ public class Inventory : MonoBehaviour, ISaveManager
 
         //更新inventory仓库
         UpdateInventorySlotUI();
-        //更新所有仓库的UI显示
 
-        
+        //更新装备栏
+        UpdateEquipmentSlotUI();
 
-        for (int i = 0; i < equipment.Count; i++)
-        {
-            equipmentSlot[i].UpdateSlot(equipment[i]);
-        }
-
+        //更新玩家统计数据UI
         UpdateStatsUI();
     }
 
+
+    private void UpdateEquipmentSlotUI()
+    {
+        for(int i = 0; i < equipmentSlot.Length; i++)
+        {
+            if (i < equipment.Count)
+            {
+                equipmentSlot[i].UpdateSlot(equipment[i]);
+            }
+            else
+            {
+                equipmentSlot[i].CleanUpSlot();
+            }
+        }
+    }
     private void UpdateInventorySlotUI()
     {
-        //统计材料仓库物体总数
+        //统计物品仓库物体总数
         int inventoryCount = inventory.Count;
         //Debug.Log("Total stash items: " + stashCount);
         //根据ScrollView窗口大小计算行列数
@@ -399,23 +425,23 @@ public class Inventory : MonoBehaviour, ISaveManager
         float scrollViewWidth = inventoryScrollViewRect.rect.width;
         float scrollViewHeight = inventoryScrollViewRect.rect.height;
         //单个库存插槽的宽高
-        itemSlotRect = inventorySlotPrefab.GetComponent<RectTransform>();
-        itemSlotWidth = itemSlotRect.rect.width;
-        itemSlotHeight = itemSlotRect.rect.height;
+        inventoryProp.itemSlotRect = inventorySlotPrefab.GetComponent<RectTransform>();
+        inventoryProp.itemSlotWidth = inventoryProp.itemSlotRect.rect.width;
+        inventoryProp.itemSlotHeight = inventoryProp.itemSlotRect.rect.height;
         //每页能够显示的行列数
-        column = Mathf.FloorToInt(scrollViewWidth / (itemSlotWidth + offset.y));
-        row = Mathf.FloorToInt(scrollViewHeight / (itemSlotHeight + offset.x));
+        inventoryProp.column = Mathf.FloorToInt(scrollViewWidth / (inventoryProp.itemSlotWidth + offset.y));
+        inventoryProp.row = Mathf.FloorToInt(scrollViewHeight / (inventoryProp.itemSlotHeight + offset.x)) + 1;//这里加1是为了衔接滚动的连续效果较好
 
-        int totalRow = Mathf.CeilToInt((float)inventoryCount / column);
+        inventoryProp.totalRow = Mathf.CeilToInt((float)inventoryCount / inventoryProp.column) + 1;//这里加1是为了保证当物品数量正好是列数的整数倍时，最后一行能被完整显示出来，而不是只显示最后一行的一部分
         //计算当前ScrollView窗口能显示的最大物品数量
-        maxShownItems = column * row;
+        inventoryProp.maxShownItems = inventoryProp.column * inventoryProp.row;
         //Debug.Log("Item slot width: " + itemSlotWidth + ", height: " + itemSlotHeight);
         //Debug.Log("ScrollView width: " + scrollViewWidth + ", height: " + scrollViewHeight);
         //Debug.Log("Columns: " + columns + ", Rows: " + rows + ", Max shown items: " + maxShownItems);
         //设置content大小
         var contentRect = inventorySlotParent.GetComponent<RectTransform>();
         float contentWidth = contentRect.sizeDelta.x; 
-        float contentHeight = totalRow * (itemSlotHeight + offset.y);
+        float contentHeight = inventoryProp.totalRow * (inventoryProp.itemSlotHeight + offset.y);
         Vector2 contentSize = new Vector2(contentWidth, contentHeight);
         contentRect.sizeDelta = contentSize;
 
@@ -431,7 +457,7 @@ public class Inventory : MonoBehaviour, ISaveManager
             foreach (var child in children)
             {
                 if (child == null) continue;
-                var slot = child.GetComponent<UI_ItemSlot>();
+                    var slot = child.GetComponent<UI_ItemSlot>();
                 if (slot != null)
                 {
                     // 正常回收到池里（会 SetActive(false) 并 SetParent(poolParent)）
@@ -449,7 +475,7 @@ public class Inventory : MonoBehaviour, ISaveManager
         inventoryItemSlot.Clear();
 
 
-        CreateInventoryItemSlotNow(maxShownItems);
+        CreateInventoryItemSlotNow(inventoryProp.maxShownItems);
         //开启协程创建对应数量的材料仓库插槽UI
 
         //StartCoroutine(CreateStashItemSlot(maxShownItems));
@@ -465,22 +491,22 @@ public class Inventory : MonoBehaviour, ISaveManager
         float scrollViewWidth = stashScrollViewRect.rect.width;
         float scrollViewHeight = stashScrollViewRect.rect.height;
 
-        itemSlotRect = stashSlotPrefab.GetComponent<RectTransform>();
-        itemSlotWidth = itemSlotRect.rect.width;
-        itemSlotHeight = itemSlotRect.rect.height;
+        stashProp.itemSlotRect = stashSlotPrefab.GetComponent<RectTransform>();
+        stashProp.itemSlotWidth = stashProp.itemSlotRect.rect.width;
+        stashProp.itemSlotHeight = stashProp.itemSlotRect.rect.height;
 
-        column = Mathf.FloorToInt(scrollViewWidth / (itemSlotWidth + offset.y));
-        row = Mathf.FloorToInt(scrollViewHeight / (itemSlotHeight + offset.x));
+        stashProp.column = Mathf.FloorToInt(scrollViewWidth / (stashProp.itemSlotWidth + offset.y));
+        stashProp.row = Mathf.FloorToInt(scrollViewHeight / (stashProp.itemSlotHeight + offset.x));
 
-        int totalCol = Mathf.CeilToInt((float)stashCount / row);
+        stashProp.totalColumn = Mathf.CeilToInt((float)stashCount / stashProp.row);
         //计算当前ScrollView窗口能显示的最大物品数量
-        maxShownItems = column * row + 1;
+        stashProp.maxShownItems = stashProp.column * stashProp.row + 1;
         //Debug.Log("Item slot width: " + itemSlotWidth + ", height: " + itemSlotHeight);
         //Debug.Log("ScrollView width: " + scrollViewWidth + ", height: " + scrollViewHeight);
         //Debug.Log("Columns: " + columns + ", Rows: " + rows + ", Max shown items: " + maxShownItems);
         //设置content大小
         var contentRect = stashSlotParent.GetComponent<RectTransform>();
-        float contentWidth = totalCol * (itemSlotWidth + offset.x);
+        float contentWidth = stashProp.totalColumn * (stashProp.itemSlotWidth + offset.x);
         float contentHeight = contentRect.sizeDelta.y;
         Vector2 contentSize = new Vector2(contentWidth, contentHeight);
         contentRect.sizeDelta = contentSize;
@@ -515,80 +541,114 @@ public class Inventory : MonoBehaviour, ISaveManager
         stashItemSlot.Clear();
 
 
-        CreateStashItemSlotNow(maxShownItems);
+        CreateStashItemSlotNow(stashProp.maxShownItems);
         //开启协程创建对应数量的材料仓库插槽UI
 
         //StartCoroutine(CreateStashItemSlot(maxShownItems));
 
     }
 
-    private static void UpdatePosition(float offsetX, float offsetY, float itemSlotWidth, float itemSlotHeight, int columns, int index, UI_ItemSlot stashSlot)
+    private  void UpdatePositionHorizontal(float offsetX, float offsetY, float itemSlotWidth, float itemSlotHeight, int index, UI_ItemSlot stashSlot)
     {
-        if(columns == 0)
-        {
-            //Debug.LogError("Columns cannot be zero. Check the scroll view and item slot dimensions.");
-        }
+        //根据索引计算物品UI在content的实际位置(横向滚动列表)
         int currentColumn = index;
         float posX = currentColumn * (itemSlotWidth + offsetX);
         stashSlot.GetComponent<RectTransform>().anchoredPosition = new Vector2(posX, 0);
     }
+    private  void UpdatePositionVertical(float offsetX, float offsetY, float itemSlotWidth, float itemSlotHeight, int index, UI_ItemSlot stashSlot)
+    {
+        //根据索引计算物品UI在content中的实际位置（纵向滚动列表）
+        int currentColumn = index % inventoryProp.column;
+        int currentRow = index / inventoryProp.column;
+        float posX = currentColumn * (itemSlotWidth + offsetX);
+        float posY = -currentRow * (itemSlotHeight + offsetY);
+        stashSlot.GetComponent<RectTransform>().anchoredPosition = new Vector2(posX, posY);
+    }
 
 
-    void ScrollViewOnValueChanged()
+
+    void StashScrollViewOnValueChanged()
     {
         //当ScrollView滚动时，更新材料仓库UI显示
         var contentRect = stashSlotParent.GetComponent<RectTransform>();
-        UpdateScroviewShowInfo(contentRect);
+        UpdateStashScroviewShowInfo(contentRect);
     }
 
-    //当ScrollView滚动时，更新材料仓库UI显示
-    public void UpdateScroviewShowInfo(RectTransform contentRect)
+
+    void InventoryScrollViewOnValueChanged()
+    {
+        //当ScrollView滚动时，更新inventory仓库UI显示
+        var contentRect = inventorySlotParent.GetComponent<RectTransform>();
+        UpdateInventoryScroviewShowInfo(contentRect);
+    }
+
+    //当Stash仓库的ScrollView滚动时，更新材料仓库UI显示
+    public void UpdateStashScroviewShowInfo(RectTransform contentRect)
     {
         float x = contentRect.anchoredPosition.x;
         x = Mathf.Min(x, 0);
-        int newStartShowItemIndex = Mathf.FloorToInt(-x / (itemSlotWidth + offset.x));
-        if (newStartShowItemIndex != startShowItemIndex)
+        int newStartShowItemIndex = Mathf.FloorToInt(-x / (stashProp.itemSlotWidth + offset.x));
+        if (newStartShowItemIndex != stashProp.startShowItemIndex)
         {
             Debug.Log("ScrollView position changed. Updating shown items. New start index: " + newStartShowItemIndex);
             //新索引满足条件：不能小于0，不能大于等于stash.Count - maxShownItems
-            startShowItemIndex = Mathf.Min(newStartShowItemIndex, stash.Count- maxShownItems);
+            stashProp.startShowItemIndex = Mathf.Min(newStartShowItemIndex, stash.Count- stashProp.maxShownItems);
             //补充条件 新索引不能大于仓库数量
-            startShowItemIndex = Mathf.Min(startShowItemIndex, stash.Count - 1);
-            startShowItemIndex = Mathf.Max(startShowItemIndex, 0);
+            stashProp.startShowItemIndex = Mathf.Min(stashProp.startShowItemIndex, stash.Count - 1);
+            stashProp.startShowItemIndex = Mathf.Max(stashProp.startShowItemIndex, 0);
             //只更新UI显示，不会增删插槽
             //UpdateSlotUI();
             UpdateStashSlotShow();
         }
     }
 
-    IEnumerator CreateStashItemSlot(int maxShownItems)
+    //当Inventory仓库的ScrollView滚动时，更新仓库UI显示
+    public void UpdateInventoryScroviewShowInfo(RectTransform contentRect)
     {
-        //Debug.Log("Creating stash item slots...");
-        //Debug.Log("stash items count : " + stash.Count);
-        //根据当前ScrollView窗口能显示的最大物品数量来创建对应数量的材料仓库插槽UI
-        int showItems = Mathf.Min(stash.Count, maxShownItems);
-
-
-
-        for (int i = 0; i < showItems; i++)
+        float y = contentRect.anchoredPosition.y;
+        y = Mathf.Max(y, 0);
+        int newStartShowRowIndex = Mathf.FloorToInt(y / (inventoryProp.itemSlotHeight + offset.y)); //  从0开始的行索引
+        int newStartShowItemIndex = newStartShowRowIndex * inventoryProp.column; // 计算对应的物品索引
+        if (newStartShowItemIndex != inventoryProp.startShowItemIndex)
         {
-            UI_ItemSlot slotObject = ItemSlotPool.Instance.Get(stashSlotParent,false);
-            
-            stashItemSlot.Add(slotObject);
-
-            if (startShowItemIndex + i >= stash.Count)
-            {
-                Debug.LogWarning("Attempting to access stash item at index " + (startShowItemIndex + i) + " but stash count is only " + stash.Count);
-                Debug.Log("I = " + i + "             startShowItemIndex = " + startShowItemIndex);
-            }
-            slotObject.UpdateSlot(stash[startShowItemIndex + i]);
-            //根据索引设置插槽位置，按照行列来设置
-            UpdatePosition(offset.x, offset.y, itemSlotWidth, itemSlotHeight, column, startShowItemIndex + i, slotObject);
-            yield return null;
-
+            Debug.Log("ScrollView position changed. Updating shown items. New start index: " + newStartShowItemIndex);
+            //新索引满足条件：不能小于0，一页显示的最后一个物品索引不能大于等于库存物品总数
+            inventoryProp.startShowItemIndex = Mathf.Min(newStartShowItemIndex, inventory.Count - inventoryProp.maxShownItems + inventoryProp.column);//这里加上column是为了保证当滚动到最后一行时，最后一行能被完整显示出来，而不是只显示最后一行的一部分
+            inventoryProp.startShowItemIndex = Mathf.Max(inventoryProp.startShowItemIndex, 0);
+            //只更新UI显示，不会增删插槽
+            //UpdateSlotUI();
+            UpdateInventorySlotShow();
         }
-
     }
+
+    //IEnumerator CreateStashItemSlot(int maxShownItems)
+    //{
+    //    //Debug.Log("Creating stash item slots...");
+    //    //Debug.Log("stash items count : " + stash.Count);
+    //    //根据当前ScrollView窗口能显示的最大物品数量来创建对应数量的材料仓库插槽UI
+    //    int showItems = Mathf.Min(stash.Count, maxShownItems);
+
+
+
+    //    for (int i = 0; i < showItems; i++)
+    //    {
+    //        UI_ItemSlot slotObject = ItemSlotPool.Instance.Get(stashSlotParent,false);
+            
+    //        stashItemSlot.Add(slotObject);
+
+    //        if (stashProp.startShowItemIndex + i >= stash.Count)
+    //        {
+    //            Debug.LogWarning("Attempting to access stash item at index " + (stashProp.startShowItemIndex + i) + " but stash count is only " + stash.Count);
+    //            Debug.Log("I = " + i + "             startShowItemIndex = " + stashProp.startShowItemIndex);
+    //        }
+    //        slotObject.UpdateSlot(stash[stashProp.startShowItemIndex + i]);
+    //        //根据索引设置插槽位置，按照行列来设置
+    //        UpdatePositionHorizontal(offset.x, offset.y, stashProp.itemSlotWidth, stashProp.itemSlotHeight, stashProp.startShowItemIndex + i, slotObject);
+    //        yield return null;
+
+    //    }
+
+    //}
 
     void CreateInventoryItemSlotNow(int maxShownItems)
     {
@@ -601,18 +661,17 @@ public class Inventory : MonoBehaviour, ISaveManager
 
         for (int i = 0; i < showItems; i++)
         {
-            UI_ItemSlot slotObject = ItemSlotPool.Instance.Get();
-            slotObject.transform.SetParent(stashSlotParent, false);
-            stashItemSlot.Add(slotObject);
+            UI_ItemSlot slotObject = ItemSlotPool.Instance.Get(inventorySlotParent, false);
+            inventoryItemSlot.Add(slotObject);
 
-            if (startShowItemIndex + i >= stash.Count)
+            if (inventoryProp.startShowItemIndex + i >= inventory.Count)
             {
-                Debug.LogWarning("Attempting to access stash item at index " + (startShowItemIndex + i) + " but stash count is only " + stash.Count);
-                Debug.Log("I = " + i + "             startShowItemIndex = " + startShowItemIndex);
+                Debug.LogWarning("Attempting to access stash item at index " + (inventoryProp.startShowItemIndex + i) + " but stash count is only " + stash.Count);
+                Debug.Log("I = " + i + "             startShowItemIndex = " + inventoryProp.startShowItemIndex);
             }
-            slotObject.UpdateSlot(stash[startShowItemIndex + i]);
+            slotObject.UpdateSlot(inventory[inventoryProp.startShowItemIndex + i]);
             //根据索引设置插槽位置，按照行列来设置
-            UpdatePosition(offset.x, offset.y, itemSlotWidth, itemSlotHeight, column, startShowItemIndex + i, slotObject);
+            UpdatePositionVertical(offset.x, offset.y, inventoryProp.itemSlotWidth, inventoryProp.itemSlotHeight, inventoryProp.startShowItemIndex + i, slotObject);
 
         }
 
@@ -631,18 +690,18 @@ public class Inventory : MonoBehaviour, ISaveManager
 
         for (int i = 0; i < showItems; i++)
         {
-            UI_ItemSlot slotObject = ItemSlotPool.Instance.Get();
-            slotObject.transform.SetParent(stashSlotParent, false);
+            UI_ItemSlot slotObject = ItemSlotPool.Instance.Get(stashSlotParent, false);
+            
             stashItemSlot.Add(slotObject);
             
-            if(startShowItemIndex + i >= stash.Count)
+            if(stashProp.startShowItemIndex + i >= stash.Count)
             {
-                Debug.LogWarning("Attempting to access stash item at index " + (startShowItemIndex + i) + " but stash count is only " + stash.Count);
-                Debug.Log("I = " + i + "             startShowItemIndex = " + startShowItemIndex);
+                Debug.LogWarning("Attempting to access stash item at index " + (stashProp.startShowItemIndex + i) + " but stash count is only " + stash.Count);
+                Debug.Log("I = " + i + "             startShowItemIndex = " + stashProp.startShowItemIndex);
             }
-            slotObject.UpdateSlot(stash[startShowItemIndex + i]);
+            slotObject.UpdateSlot(stash[stashProp.startShowItemIndex + i]);
             //根据索引设置插槽位置，按照行列来设置
-            UpdatePosition(offset.x, offset.y, itemSlotWidth, itemSlotHeight, column, startShowItemIndex + i, slotObject);
+            UpdatePositionHorizontal(offset.x, offset.y, stashProp.itemSlotWidth, stashProp.itemSlotHeight, stashProp.startShowItemIndex + i, slotObject);
             
         }
 
@@ -652,16 +711,42 @@ public class Inventory : MonoBehaviour, ISaveManager
     {
         for(int i = 0; i < stashItemSlot.Count; i++)
         {
-            if (startShowItemIndex + i < stash.Count)
+            if (stashProp.startShowItemIndex + i < stash.Count)
             {
-                stashItemSlot[i].UpdateSlot(stash[startShowItemIndex + i]);
+                if(stashItemSlot[i].gameObject.activeSelf == false)
+                {
+                    stashItemSlot[i].gameObject.SetActive(true);
+                }
+                stashItemSlot[i].UpdateSlot(stash[stashProp.startShowItemIndex + i]);
             }
             else
             {
                 //如果没有足够的物品来填充所有插槽，隐藏多余的插槽
                 stashItemSlot[i].gameObject.SetActive(false);
             }
-            UpdatePosition(offset.x, offset.y, itemSlotWidth, itemSlotHeight, column, startShowItemIndex + i, stashItemSlot[i]);
+            UpdatePositionHorizontal(offset.x, offset.y, stashProp.itemSlotWidth, stashProp.itemSlotHeight, stashProp.startShowItemIndex + i, stashItemSlot[i]);
+        }
+
+    }
+
+    private void UpdateInventorySlotShow()
+    {
+        for (int i = 0; i < inventoryItemSlot.Count; i++)
+        {
+            if (inventoryProp.startShowItemIndex + i < inventory.Count)
+            {
+                if (inventoryItemSlot[i].gameObject.activeSelf == false)
+                {
+                    inventoryItemSlot[i].gameObject.SetActive(true);
+                }
+                inventoryItemSlot[i].UpdateSlot(inventory[inventoryProp.startShowItemIndex + i]);
+            }
+            else
+            {
+                //如果没有足够的物品来填充所有插槽，隐藏多余的插槽
+                inventoryItemSlot[i].gameObject.SetActive(false);
+            }
+            UpdatePositionVertical(offset.x, offset.y, inventoryProp.itemSlotWidth, inventoryProp.itemSlotHeight, inventoryProp.startShowItemIndex + i, inventoryItemSlot[i]);
         }
 
     }
@@ -678,12 +763,12 @@ public class Inventory : MonoBehaviour, ISaveManager
     {
         if (_item.itemType != ItemType.Equipment)
             return true;
-        //判断装备仓库是否已满，满了的话就无法入库
-        if (inventory.Count >= inventoryItemSlot.Count && !inventoryDictionary.Keys.Contains(_item))
-        {
-            Debug.Log("No more space!");
-            return false;
-        }
+        ////判断装备仓库是否已满，满了的话就无法入库
+        //if (inventory.Count >= inventoryItemSlot.Count && !inventoryDictionary.Keys.Contains(_item))
+        //{
+        //    Debug.Log("No more space!");
+        //    return false;
+        //}
         return true;
     }
 

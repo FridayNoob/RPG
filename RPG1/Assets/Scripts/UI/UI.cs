@@ -79,7 +79,7 @@ public class UI : MonoBehaviour,ISaveManager
         //打开菜单时，游戏会自动暂停
         if(GameManager.instance != null)
         {
-            Debug.Log("SwitchTo: " + _menu.name);
+            //Debug.Log("SwitchTo: " + _menu.name);
             if (_menu == inGameUI)
             {
                 //如果打开的是InGameUI界面，就把游戏继续

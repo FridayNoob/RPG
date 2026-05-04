@@ -110,6 +110,7 @@ public class ObjectPool<T> : Singeton<ObjectPool<T>> where T : Component
 
         // 先设父级，再激活，避免在错误父级或 poolParent 下造成短暂可见或 Layout 重建
         obj.transform.SetParent(parent, worldPositionStays);
+        obj.transform.localScale = Vector3.one; // 确保缩放正确（如果需要）
         obj.gameObject.SetActive(true);
         return obj;
     }
